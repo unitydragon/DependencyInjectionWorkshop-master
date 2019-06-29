@@ -15,7 +15,7 @@ namespace DependencyInjectionWorkshop.Models
         public bool Verify(string accountId, string password, string otp)
         {
             string currentPassword;
-
+            //確認帳號有無被鎖住
             var httpClient = new HttpClient() { BaseAddress = new Uri("http://joey.com/") };
             var isLockedResponse = httpClient.PostAsJsonAsync("api/failedCounter/IsLocked", accountId).Result;
 
@@ -25,12 +25,13 @@ namespace DependencyInjectionWorkshop.Models
                 throw new FailedTooManyTimesException();
 
             }
+            //進入資料庫拿取帳號密碼資料
             using (var connection = new SqlConnection("datasource=db,password=abc"))
             {
                 currentPassword = connection.Query<string>("spGetUserPassword", new { Id = accountId },
                     commandType: CommandType.StoredProcedure).SingleOrDefault();
             }
-
+            //加密使用者輸入的密碼與資料庫的比對
             var crypt = new System.Security.Cryptography.SHA256Managed();
             var hash = new StringBuilder();
             var crypto = crypt.ComputeHash(Encoding.UTF8.GetBytes(password));
@@ -41,7 +42,7 @@ namespace DependencyInjectionWorkshop.Models
 
             var hashPassword = hash.ToString();
 
-
+            //獲取服務端的OTP
             var response = httpClient.PostAsJsonAsync("api/otps", accountId).Result;
             string currentOtp;
             if (response.IsSuccessStatusCode)
@@ -67,6 +68,16 @@ namespace DependencyInjectionWorkshop.Models
                 var addFailedCountResponse = httpClient.PostAsJsonAsync("api/failedCounter/Add", accountId).Result;
 
                 addFailedCountResponse.EnsureSuccessStatusCode();
+
+                var failedCountResponse =
+                    httpClient.PostAsJsonAsync("api/failedCounter/GetFailedCount", accountId).Result;
+
+                failedCountResponse.EnsureSuccessStatusCode();
+
+                var failedCount = failedCountResponse.Content.ReadAsAsync<int>().Result;
+                var logger = NLog.LogManager.GetCurrentClassLogger();
+                logger.Info($"accountId:{accountId} failed times:{failedCount}");
+
                 return false;
             }
         }
